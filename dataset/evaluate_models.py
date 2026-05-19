@@ -1,11 +1,13 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, classification_report
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, classification_report, roc_curve, auc, precision_recall_curve, confusion_matrix
 import os
 
 print("Loading dataset...")
@@ -80,3 +82,71 @@ scale_pos_weight = (len(y_train) - sum(y_train)) / sum(y_train)
 xgb_model = XGBClassifier(use_label_encoder=False, eval_metric='logloss', scale_pos_weight=scale_pos_weight, random_state=42, max_depth=5, learning_rate=0.05, n_estimators=200)
 xgb_model.fit(X_train, y_train)
 evaluate_model("Improved XGBoost", xgb_model, X_test, y_test, X_train, y_train)
+
+print("--- Generating evaluation graphs ---")
+plt.style.use('default')
+sns.set_theme(style="whitegrid")
+
+# Get optimal threshold for Random Forest graph
+y_train_prob_rf = rf_model.predict_proba(X_train)[:, 1]
+best_thresh_rf = get_optimal_threshold(y_train, y_train_prob_rf)
+y_prob_rf = rf_model.predict_proba(X_test)[:, 1]
+y_pred_rf = (y_prob_rf >= best_thresh_rf).astype(int)
+
+print("Generating ROC Curve...")
+fpr, tpr, _ = roc_curve(y_test, y_prob_rf)
+roc_auc = auc(fpr, tpr)
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, color='#2563eb', lw=2, label=f'Random Forest (AUC = {roc_auc:.3f})')
+plt.plot([0, 1], [0, 1], color='gray', lw=2, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate (1 - Specificity)', fontsize=12)
+plt.ylabel('True Positive Rate (Recall)', fontsize=12)
+plt.title('Receiver Operating Characteristic (ROC) Curve', fontsize=14, pad=15)
+plt.legend(loc="lower right", fontsize=11)
+plt.tight_layout()
+plt.savefig('graph1_roc_curve.png', dpi=300)
+plt.close()
+
+print("Generating Precision-Recall Curve...")
+precision, recall, _ = precision_recall_curve(y_test, y_prob_rf)
+pr_auc = auc(recall, precision)
+plt.figure(figsize=(8, 6))
+plt.plot(recall, precision, color='#16a34a', lw=2, label=f'Random Forest (PR-AUC = {pr_auc:.3f})')
+plt.xlabel('Recall (True Positive Rate)', fontsize=12)
+plt.ylabel('Precision (Positive Predictive Value)', fontsize=12)
+plt.title('Precision-Recall Curve', fontsize=14, pad=15)
+plt.legend(loc="lower left", fontsize=11)
+plt.tight_layout()
+plt.savefig('graph2_pr_curve.png', dpi=300)
+plt.close()
+
+print("Generating Confusion Matrix...")
+cm = confusion_matrix(y_test, y_pred_rf)
+plt.figure(figsize=(7, 6))
+ax = sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                 xticklabels=['Non-Defaulter', 'Defaulter'], 
+                 yticklabels=['Non-Defaulter', 'Defaulter'],
+                 annot_kws={"size": 14})
+plt.xlabel('Predicted Class', fontsize=12, labelpad=10)
+plt.ylabel('Actual Class', fontsize=12, labelpad=10)
+plt.title(f'Confusion Matrix (Random Forest, Thresh={best_thresh_rf:.2f})', fontsize=14, pad=15)
+plt.tight_layout()
+plt.savefig('graph3_confusion_matrix.png', dpi=300)
+plt.close()
+
+print("Generating Feature Importance Bar Chart...")
+importances = rf_model.feature_importances_
+indices = np.argsort(importances)[::-1][:10]
+features = X.columns
+plt.figure(figsize=(10, 6))
+sns.barplot(x=importances[indices], y=[features[i] for i in indices], palette='viridis', orient='h')
+plt.xlabel('Relative Importance (Gini)', fontsize=12)
+plt.ylabel('Feature', fontsize=12)
+plt.title('Top 10 Feature Importances in Risk Prediction', fontsize=14, pad=15)
+plt.tight_layout()
+plt.savefig('graph4_feature_importance.png', dpi=300)
+plt.close()
+
+print("Graphs successfully generated and saved in the dataset directory.")
